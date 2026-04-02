@@ -3,17 +3,18 @@
 Catches HIPAA, PCI-DSS, GDPR patterns in <1ms. No external dependencies.
 Designed for pre-flight checks before sending text to LLM APIs.
 
-14 pattern categories:
-- SSN, credit card (full + partial), bank account
-- DOB, medical record number, patient name
-- Healthcare context, medical documents
-- Email, phone, IP address, passport, driver's license
-- Salary/compensation
+22 pattern categories covering:
+- HIPAA: SSN, DOB, MRN, NPI, patient names, healthcare context, medical docs,
+         Medicare/Medicaid, insurance IDs, physical addresses
+- PCI-DSS: Credit cards (full + partial), bank accounts
+- GDPR: Email, phone, IP, passport, driver's license
+- SOX: Salary/compensation
 """
 
 import logging
 import re
 from dataclasses import dataclass, field
+from typing import Optional
 
 logger = logging.getLogger("phi_shield")
 
@@ -30,12 +31,68 @@ class PHIScanResult:
 
 
 _PATTERN_SPECS = {
+    # ── HIPAA ────────────────────────────────────────────────────────
     "ssn": (
         r"\b\d{3}-\d{2}-\d{4}\b",
         0,
         "high",
         "HIPAA",
     ),
+    "date_of_birth": (
+        r"\b(?:DOB|date of birth|born|birthday|d\.o\.b)[:\s]+\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}\b",
+        re.IGNORECASE,
+        "high",
+        "HIPAA",
+    ),
+    "medical_record_number": (
+        r"\b(?:MRN|medical record|chart|patient\s*(?:id|#|no|number))[:\s#]+\w{4,15}\b",
+        re.IGNORECASE,
+        "high",
+        "HIPAA",
+    ),
+    "npi": (
+        r"\b(?:NPI|national provider)[:\s#]+\d{10}\b",
+        re.IGNORECASE,
+        "high",
+        "HIPAA",
+    ),
+    "medicare_medicaid": (
+        r"\b(?:medicare|medicaid|mbi|hic)[:\s#]+[A-Z0-9]{8,12}\b",
+        re.IGNORECASE,
+        "high",
+        "HIPAA",
+    ),
+    "insurance_id": (
+        r"\b(?:insurance|member|subscriber|group|policy)\s*(?:id|#|no|number)[:\s]+[A-Z0-9]{5,20}\b",
+        re.IGNORECASE,
+        "high",
+        "HIPAA",
+    ),
+    "patient_name": (
+        r"\b[Pp]atient[\s:]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)",
+        0,
+        "high",
+        "HIPAA",
+    ),
+    "healthcare_context": (
+        r"\b(?:patient|room\s+\d+|ward|icu|er\b|diagnosis|prescription|dosage|medication|prognosis|biopsy|radiology|oncology|lab\s+results?)(?:\s+\w+){0,5}\s+(?:need|require|adjust|review|check|update|send|transfer|prescri)",
+        re.IGNORECASE,
+        "high",
+        "HIPAA",
+    ),
+    "medical_document": (
+        r"\b(?:discharge\s+summary|medical\s+record|lab\s+result|pathology\s+report|radiology\s+report|clinical\s+note|operative\s+report|admit|referral)\b.*?\b(?:send|transfer|fax|email|forward|share|review|update)",
+        re.IGNORECASE,
+        "high",
+        "HIPAA",
+    ),
+    "physical_address": (
+        r"\b\d{1,5}\s+(?:N\.?|S\.?|E\.?|W\.?|North|South|East|West)?\s*(?:[A-Z][a-z]+\s+){1,3}(?:St(?:reet)?|Ave(?:nue)?|Blvd|Dr(?:ive)?|Ln|Lane|Rd|Road|Way|Ct|Court|Pl(?:ace)?|Cir(?:cle)?)\b",
+        0,
+        "medium",
+        "HIPAA",
+    ),
+    # ── PCI-DSS ──────────────────────────────────────────────────────
     "credit_card": (
         r"\b(?:\d{4}[-\s]?){3}\d{4}\b",
         0,
@@ -54,18 +111,7 @@ _PATTERN_SPECS = {
         "high",
         "PCI_DSS",
     ),
-    "date_of_birth": (
-        r"\b(?:DOB|date of birth|born|birthday)[:\s]+\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}\b",
-        re.IGNORECASE,
-        "high",
-        "HIPAA",
-    ),
-    "medical_record_number": (
-        r"\b(?:MRN|medical record|chart)[\s#:]+\w{5,15}\b",
-        re.IGNORECASE,
-        "high",
-        "HIPAA",
-    ),
+    # ── GDPR ─────────────────────────────────────────────────────────
     "email": (
         r"\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b",
         0,
@@ -74,6 +120,12 @@ _PATTERN_SPECS = {
     ),
     "phone": (
         r"\b(?:\+1[-.]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b",
+        0,
+        "medium",
+        "GDPR",
+    ),
+    "phone_intl": (
+        r"\+\d{1,3}[-.\s]?\d{1,4}[-.\s]?\d{2,4}[-.\s]?\d{2,4}(?:[-.\s]?\d{1,4})?\b",
         0,
         "medium",
         "GDPR",
@@ -96,23 +148,25 @@ _PATTERN_SPECS = {
         "high",
         "GDPR",
     ),
-    "patient_name": (
-        r"\b[Pp]atient[\s:]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)",
-        0,
-        "high",
-        "HIPAA",
-    ),
-    "healthcare_context": (
-        r"\b(?:patient|room\s+\d+|ward|icu|er\b|diagnosis|prescription|dosage|medication|prognosis|biopsy|radiology|oncology|lab\s+results?)(?:\s+\w+){0,5}\s+(?:need|require|adjust|review|check|update|send|transfer|prescri)",
+    "vin": (
+        r"\b(?:VIN|vehicle)[:\s#]+[A-HJ-NPR-Z0-9]{17}\b",
         re.IGNORECASE,
-        "high",
-        "HIPAA",
+        "medium",
+        "GDPR",
     ),
+    # ── SOX ───────────────────────────────────────────────────────────
     "salary_compensation": (
         r"\b(?:salary|compensation|payroll|wage|bonus)[\s:]+\$?\d[\d,.]+\b",
         re.IGNORECASE,
         "high",
         "SOX",
+    ),
+    # ── FERPA (education) ─────────────────────────────────────────────
+    "student_id": (
+        r"\b(?:student\s*(?:id|#|number))[:\s]+[A-Z0-9]{5,12}\b",
+        re.IGNORECASE,
+        "medium",
+        "FERPA",
     ),
 }
 
@@ -141,6 +195,10 @@ class FastPHIScanner:
         scanner = FastPHIScanner()
         result = scanner.scan("Patient John Doe SSN 123-45-6789")
         assert result["phi_detected"] is True
+
+        # Redact PHI from text
+        clean = scanner.redact("Patient John Doe SSN 123-45-6789")
+        # → "Patient [PATIENT_NAME] SSN [SSN]"
 
     The scan() method never raises — returns a safe default on any error.
     """
@@ -190,9 +248,10 @@ class FastPHIScanner:
         for entity_type, (pattern, risk, regulation) in self._patterns.items():
             matches = pattern.findall(text)
             for match in matches:
+                value = match if isinstance(match, str) else str(match)
                 entities.append({
                     "type": entity_type,
-                    "value": match if len(match) < 20 else match[:10] + "...",
+                    "value": value if len(value) < 20 else value[:10] + "...",
                 })
                 if RISK_ORDER.get(risk, 0) > RISK_ORDER.get(max_risk, 0):
                     max_risk = risk
@@ -207,3 +266,27 @@ class FastPHIScanner:
             "regulation": max_regulation if phi_detected else "none",
             "scanner": "regex_fast",
         }
+
+    def redact(self, text: str, replacement: Optional[str] = None) -> str:
+        """Replace all detected PHI/PII with redaction markers.
+
+        Args:
+            text: Input text to redact.
+            replacement: Custom replacement string. If None, uses [TYPE] format.
+
+        Returns:
+            Text with all PHI/PII replaced by redaction markers.
+        """
+        result = text
+        for entity_type, (pattern, risk, regulation) in self._patterns.items():
+            tag = replacement or f"[{entity_type.upper()}]"
+            result = pattern.sub(tag, result)
+        return result
+
+    def scan_batch(self, texts: list[str]) -> list[dict]:
+        """Scan multiple texts. Returns list of scan results."""
+        return [self.scan(t) for t in texts]
+
+    def has_phi(self, text: str) -> bool:
+        """Quick boolean check — does this text contain PHI?"""
+        return self.scan(text)["phi_detected"]
