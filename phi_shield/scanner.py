@@ -3,11 +3,15 @@
 Catches HIPAA, PCI-DSS, GDPR patterns in <1ms. No external dependencies.
 Designed for pre-flight checks before sending text to LLM APIs.
 
-32 pattern categories covering:
+45 pattern categories covering:
 - HIPAA: SSN, DOB, MRN, NPI, patient names, healthcare context, medical docs,
          Medicare/Medicaid, insurance IDs, physical addresses
 - HIPAA-EMS: GPS coordinates, blood pressure, vital signs, ICD-10, CPT,
              NEMSIS elements, run/incident numbers, US dates, ZIP+4
+- Cross-vertical: lab values, medication doses, age >89, device serial,
+                  fax numbers, infection status (HIV/HBsAg/MRSA/HCV)
+- Radiology: accession numbers, DICOM UIDs, BI-RADS, radiation dose
+- Dialysis: Kt/V, URR, dry weight, vascular access type
 - PCI-DSS: Credit cards (full + partial), bank accounts
 - GDPR: Email, phone, IP, passport, driver's license
 - SOX: Salary/compensation
@@ -252,20 +256,132 @@ _PATTERN_SPECS = {
         "HIPAA",
         None,
     ),
+    # ── CROSS-VERTICAL (EMS + Radiology + Dialysis) ─────────────────
+    "lab_values": (
+        r"\b(?:BUN|creatinine|Cr|SCr|hemoglobin|Hgb|Hb|WBC|RBC|platelet|albumin|phosphorus|PO4|PTH|HbA1c|A1c|INR|potassium|sodium|ferritin|troponin|TSH|calcium|magnesium|AST|ALT|bilirubin|lipase|amylase|BNP|proBNP|lactate|CRP|ESR|PSA|eGFR)[:\s]+\d+(?:\.\d+)?\s*(?:mg/dL|g/dL|pg/mL|ng/mL|mEq/L|mmol/L|U/L|IU/L|%|K/uL|mL/min)?\b",
+        re.IGNORECASE,
+        "high",
+        "HIPAA",
+        None,
+    ),
+    "medication_dose": (
+        r"\b(?:administered|prescribed|given|dose|medication|med|ordered|dispensed)[:\s]+\w+\s+\d+(?:\.\d+)?\s*(?:mg|mcg|mL|units?|mEq|IU|g)\b",
+        re.IGNORECASE,
+        "high",
+        "HIPAA",
+        None,
+    ),
+    "age_over_89": (
+        r"\b(?:age|aged|years?\s*old)[:\s]+(?:9\d|1[0-9]\d)\b",
+        re.IGNORECASE,
+        "high",
+        "HIPAA",
+        None,
+    ),
+    "device_serial": (
+        r"\b(?:serial\s*(?:number|#|no\.?)|SN|device\s*(?:id|#))[:\s]+[A-Z0-9\-]{5,20}\b",
+        re.IGNORECASE,
+        "medium",
+        "HIPAA",
+        None,
+    ),
+    "fax_number": (
+        r"\b(?:fax|facsimile)[:\s]+(?:\+1[-.]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b",
+        re.IGNORECASE,
+        "medium",
+        "HIPAA",
+        None,
+    ),
+    "infection_status": (
+        r"\b(?:HIV|HBsAg|hepatitis\s*[BC]|HCV|anti-?HCV|MRSA|VRE|C\.?\s*diff)[:\s]+(?:positive|negative|reactive|non-?reactive|detected|not\s*detected|\+|-)\b",
+        re.IGNORECASE,
+        "critical",
+        "HIPAA",
+        None,
+    ),
+    # ── RADIOLOGY ───────────────────────────────────────────────────
+    "accession_number": (
+        r"\b(?:accession|acc)\s*(?:number|no\.?|#|id)?[:\s]+[A-Z0-9]{6,20}\b",
+        re.IGNORECASE,
+        "high",
+        "HIPAA",
+        None,
+    ),
+    "dicom_uid": (
+        r"\b(?:study|series|sop)\s*(?:instance)?\s*uid[:\s=]+(?:\d+\.){3,}\d+\b",
+        re.IGNORECASE,
+        "critical",
+        "HIPAA",
+        None,
+    ),
+    "birads_score": (
+        r"\bBI-?RADS\s*(?:category\s*)?:?\s*[0-6][A-C]?\b",
+        re.IGNORECASE,
+        "medium",
+        "HIPAA",
+        None,
+    ),
+    "radiation_dose": (
+        r"\b(?:CTDIvol|DLP|dose\s*(?:index|length\s*product))[:\s]+\d+(?:\.\d+)?\s*(?:mGy|mGy[·\-]cm|mSv|mrad)\b",
+        re.IGNORECASE,
+        "medium",
+        "HIPAA",
+        None,
+    ),
+    # ── DIALYSIS ────────────────────────────────────────────────────
+    "dialysis_adequacy": (
+        r"\b(?:Kt/V|spKt/V|eKt/V|URR|urea\s*reduction)[:\s]+\d+(?:\.\d+)?%?\b",
+        re.IGNORECASE,
+        "medium",
+        "HIPAA",
+        None,
+    ),
+    "dry_weight": (
+        r"\b(?:dry\s*weight|target\s*weight|EDW|estimated\s*dry\s*weight)[:\s]+\d+(?:\.\d+)?\s*(?:kg|lbs?)\b",
+        re.IGNORECASE,
+        "medium",
+        "HIPAA",
+        None,
+    ),
+    "dialysis_access": (
+        r"\b(?:AV\s*fistula|AVF|AV\s*graft|AVG|tunneled\s*catheter|permcath|dialysis\s*catheter|(?:left|right)\s+(?:radial|brachial|cephalic|basilic|subclavian|femoral|jugular)\s+(?:fistula|graft|catheter|access))\b",
+        re.IGNORECASE,
+        "high",
+        "HIPAA",
+        None,
+    ),
 }
 
 # Pattern groups for redaction presets
 _EMS_PATTERNS = frozenset({
     "ssn", "date_of_birth", "medical_record_number", "npi", "patient_name",
-    "physical_address", "phone", "email", "gps_coordinates", "blood_pressure",
-    "vital_signs", "nemsis_element", "run_incident_number", "date_us",
-    "date_written", "zip_plus4",
+    "physical_address", "phone", "email", "fax_number", "gps_coordinates",
+    "blood_pressure", "vital_signs", "nemsis_element", "run_incident_number",
+    "date_us", "date_written", "zip_plus4", "medication_dose", "age_over_89",
+    "lab_values", "infection_status",
 })
 
 _BILLING_PATTERNS = frozenset({
     "ssn", "date_of_birth", "medical_record_number", "npi", "medicare_medicaid",
     "insurance_id", "patient_name", "physical_address", "icd10_code", "cpt_code",
-    "credit_card", "credit_card_partial", "bank_account",
+    "credit_card", "credit_card_partial", "bank_account", "fax_number",
+})
+
+_RADIOLOGY_PATTERNS = frozenset({
+    "ssn", "date_of_birth", "medical_record_number", "npi", "patient_name",
+    "physical_address", "phone", "email", "fax_number", "accession_number",
+    "dicom_uid", "birads_score", "radiation_dose", "icd10_code", "cpt_code",
+    "device_serial", "date_us", "date_written", "lab_values", "age_over_89",
+    "insurance_id", "medicare_medicaid",
+})
+
+_DIALYSIS_PATTERNS = frozenset({
+    "ssn", "date_of_birth", "medical_record_number", "npi", "patient_name",
+    "physical_address", "phone", "email", "fax_number", "dialysis_adequacy",
+    "dry_weight", "dialysis_access", "lab_values", "medication_dose",
+    "infection_status", "vital_signs", "blood_pressure", "icd10_code",
+    "cpt_code", "insurance_id", "medicare_medicaid", "date_us", "date_written",
+    "age_over_89",
 })
 
 RISK_ORDER = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
@@ -400,6 +516,24 @@ class FastPHIScanner:
         patient names, addresses, ICD-10, CPT codes, credit cards, bank accounts.
         """
         return self._redact_subset(text, _BILLING_PATTERNS)
+
+    def redact_radiology(self, text: str) -> str:
+        """Redact radiology PHI (DICOM metadata, reports, billing).
+
+        Targets: SSN, DOB, MRN, NPI, patient names, addresses, accession
+        numbers, DICOM UIDs, BI-RADS, radiation dose, device serial numbers,
+        ICD-10, CPT codes, insurance IDs, dates, labs, age.
+        """
+        return self._redact_subset(text, _RADIOLOGY_PATTERNS)
+
+    def redact_dialysis(self, text: str) -> str:
+        """Redact dialysis PHI (treatment logs, ESRD forms, lab reports).
+
+        Targets: SSN, DOB, MRN, NPI, patient names, addresses, Kt/V, URR,
+        dry weight, vascular access info, labs, medications, infection status,
+        vitals, blood pressure, ICD-10, CPT, insurance, dates, age.
+        """
+        return self._redact_subset(text, _DIALYSIS_PATTERNS)
 
     def _redact_subset(
         self,

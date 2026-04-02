@@ -21,7 +21,7 @@ if result["phi_detected"]:
         print(f"  {entity['type']}: {entity['value']}")
 ```
 
-### Redaction
+### Redaction presets
 
 ```python
 from phi_shield.scanner import FastPHIScanner
@@ -30,22 +30,21 @@ scanner = FastPHIScanner()
 
 # Redact all PHI
 clean = scanner.redact("Patient John Doe SSN 123-45-6789")
-# → "Patient [PATIENT_NAME] SSN [SSN]"
 
-# EMS preset — redacts vitals, GPS, run numbers, patient identifiers
-clean = scanner.redact_ems(epcr_text)
-
-# Billing preset — redacts ICD-10, CPT, insurance IDs, financial data
-clean = scanner.redact_billing(cms1500_text)
+# Vertical-specific presets
+clean = scanner.redact_ems(epcr_text)          # ePCR, run sheets, vitals
+clean = scanner.redact_billing(cms1500_text)    # CMS-1500, UB-04, claims
+clean = scanner.redact_radiology(report_text)   # DICOM metadata, rad reports
+clean = scanner.redact_dialysis(treatment_log)  # Treatment logs, ESRD forms
 ```
 
 ### Contextual scanning
 
-Date patterns (`date_us`, `date_written`) only trigger when healthcare keywords are present in the text, reducing false positives in non-medical documents.
+Date patterns (`date_us`, `date_written`) only trigger when healthcare keywords are present, reducing false positives in non-medical documents.
 
-## What it detects
+## What it detects (45 patterns)
 
-### HIPAA (10 core patterns)
+### HIPAA Core (10 patterns)
 
 | Pattern | Risk |
 |---|---|
@@ -75,7 +74,35 @@ Date patterns (`date_us`, `date_written`) only trigger when healthcare keywords 
 | Written dates (with medical context) | Medium |
 | ZIP+4 codes | Low |
 
-### Other regulations
+### Cross-vertical (6 patterns)
+
+| Pattern | Risk |
+|---|---|
+| Lab values (BUN, creatinine, Hgb, PTH, 30+ labs) | High |
+| Medication doses (with context) | High |
+| Age > 89 (HIPAA special) | High |
+| Device serial numbers | Medium |
+| Fax numbers | Medium |
+| Infection status (HIV, HBsAg, MRSA, HCV) | Critical |
+
+### Radiology (4 patterns)
+
+| Pattern | Risk |
+|---|---|
+| Accession numbers | High |
+| DICOM UIDs (Study/Series/SOP) | Critical |
+| BI-RADS classifications | Medium |
+| Radiation dose (CTDIvol, DLP) | Medium |
+
+### Dialysis (3 patterns)
+
+| Pattern | Risk |
+|---|---|
+| Dialysis adequacy (Kt/V, URR) | Medium |
+| Dry weight / target weight | Medium |
+| Vascular access (AVF, AVG, catheter) | High |
+
+### Other regulations (12 patterns)
 
 | Pattern | Regulation | Risk |
 |---|---|---|
@@ -84,7 +111,8 @@ Date patterns (`date_us`, `date_written`) only trigger when healthcare keywords 
 | Email address | GDPR | Medium |
 | Phone (US + international) | GDPR | Medium |
 | IP address | GDPR | Low |
-| Passport/Driver's license | GDPR | High |
+| Passport | GDPR | High |
+| Driver's license | GDPR | High |
 | VIN | GDPR | Medium |
 | Salary/compensation | SOX | High |
 | Student ID | FERPA | Medium |
@@ -93,12 +121,13 @@ Date patterns (`date_us`, `date_written`) only trigger when healthcare keywords 
 
 - **Zero dependencies** — stdlib only (`re`, `dataclasses`)
 - **<1ms** scan time on any text
-- **32 patterns** covering HIPAA, PCI-DSS, GDPR, SOX, FERPA
+- **45 patterns** covering HIPAA, PCI-DSS, GDPR, SOX, FERPA
+- **4 healthcare verticals** — EMS, radiology, dialysis, billing
 - **Contextual scanning** — date patterns require healthcare keywords
-- **Redaction presets** — `redact_ems()` and `redact_billing()` for EMS/billing workflows
+- **5 redaction presets** — `redact()`, `redact_ems()`, `redact_billing()`, `redact_radiology()`, `redact_dialysis()`
 - **Never raises** — graceful degradation on any error
 - **Pre-flight check** — scan before sending to Claude/OpenAI/any LLM API
-- **65 tests** passing
+- **101 tests** passing
 
 ## License
 

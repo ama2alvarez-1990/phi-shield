@@ -503,6 +503,321 @@ def test_synthetic_cms1500_redact_billing():
     assert "99213" not in clean
 
 
+# ── CROSS-VERTICAL PATTERNS ──────────────────────────────────────
+
+def test_detects_lab_values_bun():
+    result = scan("BUN: 68 mg/dL pre-dialysis")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "lab_values" for e in result["entities"])
+
+
+def test_detects_lab_values_creatinine():
+    result = scan("Creatinine: 8.2 mg/dL elevated")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "lab_values" for e in result["entities"])
+
+
+def test_detects_lab_values_hemoglobin():
+    result = scan("Hgb: 11.2 g/dL anemia management")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "lab_values" for e in result["entities"])
+
+
+def test_detects_lab_values_pth():
+    result = scan("PTH: 287 pg/mL secondary hyperparathyroidism")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "lab_values" for e in result["entities"])
+
+
+def test_detects_lab_values_hba1c():
+    result = scan("HbA1c: 7.2% diabetic control")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "lab_values" for e in result["entities"])
+
+
+def test_detects_lab_values_egfr():
+    result = scan("eGFR: 15 mL/min stage 5 CKD")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "lab_values" for e in result["entities"])
+
+
+def test_detects_medication_dose():
+    result = scan("Administered nitroglycerin 0.4 mg sublingual")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "medication_dose" for e in result["entities"])
+
+
+def test_detects_medication_dose_prescribed():
+    result = scan("Prescribed metformin 500 mg twice daily")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "medication_dose" for e in result["entities"])
+
+
+def test_detects_age_over_89():
+    result = scan("Age: 92 years old, HIPAA protected")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "age_over_89" for e in result["entities"])
+
+
+def test_does_not_detect_age_under_90():
+    result = scan("Age: 85 years old")
+    age_entities = [e for e in result["entities"] if e["type"] == "age_over_89"]
+    assert len(age_entities) == 0
+
+
+def test_detects_device_serial():
+    result = scan("Serial Number: GE94850126 scanner")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "device_serial" for e in result["entities"])
+
+
+def test_detects_device_serial_sn():
+    result = scan("SN: SIEMENS-4500-XR device")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "device_serial" for e in result["entities"])
+
+
+def test_detects_fax_number():
+    result = scan("Fax: 305-555-1234 for records")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "fax_number" for e in result["entities"])
+
+
+def test_detects_infection_status_hiv():
+    result = scan("HIV: negative last screen 2024")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "infection_status" for e in result["entities"])
+    assert result["risk"] == "critical"
+
+
+def test_detects_infection_status_hbsag():
+    result = scan("HBsAg: positive isolation required")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "infection_status" for e in result["entities"])
+
+
+def test_detects_infection_status_mrsa():
+    result = scan("MRSA: positive contact precautions")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "infection_status" for e in result["entities"])
+
+
+def test_detects_infection_status_hcv():
+    result = scan("anti-HCV: reactive confirmatory pending")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "infection_status" for e in result["entities"])
+
+
+# ── RADIOLOGY PATTERNS ──────────────────────────────────────────
+
+def test_detects_accession_number():
+    result = scan("Accession Number: E01234567 CT abdomen")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "accession_number" for e in result["entities"])
+
+
+def test_detects_accession_short():
+    result = scan("ACC# MR202212345678")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "accession_number" for e in result["entities"])
+
+
+def test_detects_dicom_uid():
+    result = scan("Study Instance UID: 2.16.124.113543.1154777499.30246.19789")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "dicom_uid" for e in result["entities"])
+
+
+def test_detects_dicom_series_uid():
+    result = scan("Series UID: 1.2.840.10008.5.1.4.1.1.2.1")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "dicom_uid" for e in result["entities"])
+
+
+def test_detects_birads():
+    result = scan("BI-RADS: 4C suspicious abnormality")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "birads_score" for e in result["entities"])
+
+
+def test_detects_birads_category():
+    result = scan("BI-RADS category 5 highly suggestive")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "birads_score" for e in result["entities"])
+
+
+def test_detects_radiation_dose_ctdi():
+    result = scan("CTDIvol: 45.23 mGy scan parameters")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "radiation_dose" for e in result["entities"])
+
+
+def test_detects_radiation_dose_dlp():
+    result = scan("DLP: 1250.5 mGy-cm total dose")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "radiation_dose" for e in result["entities"])
+
+
+# ── DIALYSIS PATTERNS ───────────────────────────────────────────
+
+def test_detects_ktv():
+    result = scan("Kt/V: 1.45 adequate dialysis")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "dialysis_adequacy" for e in result["entities"])
+
+
+def test_detects_urr():
+    result = scan("URR: 71.2% above target")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "dialysis_adequacy" for e in result["entities"])
+
+
+def test_detects_dry_weight():
+    result = scan("Dry weight: 75.0 kg current target")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "dry_weight" for e in result["entities"])
+
+
+def test_detects_dry_weight_edw():
+    result = scan("EDW: 165 lbs as of last month")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "dry_weight" for e in result["entities"])
+
+
+def test_detects_dialysis_access_avf():
+    result = scan("Left brachial fistula patent, good thrill")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "dialysis_access" for e in result["entities"])
+
+
+def test_detects_dialysis_access_avg():
+    result = scan("AVG right forearm, 15G needles")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "dialysis_access" for e in result["entities"])
+
+
+def test_detects_dialysis_access_catheter():
+    result = scan("Tunneled catheter right jugular placed 03/2024")
+    assert result["phi_detected"] is True
+    assert any(e["type"] == "dialysis_access" for e in result["entities"])
+
+
+# ── Synthetic radiology report ──────────────────────────────────
+
+def test_synthetic_radiology_report():
+    """Full synthetic radiology report scan."""
+    report = """
+    Radiology Report
+    Accession: RAD2024050123
+    Study Instance UID: 1.2.840.113619.2.55.3.2831
+    Patient: Elena Rodriguez
+    DOB: 07/22/1958
+    MRN: MR-55432
+    NPI: 5678901234
+    Fax: 305-555-9876
+
+    Modality: MG (Mammography)
+    BI-RADS: 4B suspicious
+    CTDIvol: 8.5 mGy
+    Device Serial #: HOLOGIC-SELENIA-7890
+
+    Findings: 1.2cm spiculated mass upper outer quadrant right breast
+    Dx: D05.11 intraductal carcinoma in situ right breast
+    CPT: 77067 screening mammography bilateral
+
+    Recommendation: Biopsy. Patient notified.
+    """
+    result = scan(report)
+    assert result["phi_detected"] is True
+    types = {e["type"] for e in result["entities"]}
+    assert "accession_number" in types
+    assert "dicom_uid" in types
+    assert "patient_name" in types
+    assert "date_of_birth" in types
+    assert "birads_score" in types
+    assert "radiation_dose" in types
+    assert "device_serial" in types
+    assert "icd10_code" in types
+    assert "cpt_code" in types
+    assert "fax_number" in types
+
+
+def test_synthetic_radiology_redact():
+    """Redact radiology preset removes all radiology identifiers."""
+    scanner = FastPHIScanner()
+    report = "Patient Elena Rodriguez MRN: MR55432 Accession: RAD2024050123 Study UID: 1.2.840.113619.2.55.3 BI-RADS: 4B CTDIvol: 8.5 mGy"
+    clean = scanner.redact_radiology(report)
+    assert "Elena Rodriguez" not in clean
+    assert "MR55432" not in clean
+    assert "RAD2024050123" not in clean
+    assert "1.2.840" not in clean
+    assert "4B" not in clean
+
+
+# ── Synthetic dialysis treatment log ────────────────────────────
+
+def test_synthetic_dialysis_log():
+    """Full synthetic dialysis treatment log scan."""
+    log = """
+    Hemodialysis Treatment Log
+    Patient: Carlos Mendez
+    DOB: 09/14/1952
+    SSN: 456-78-9012
+    MRN: DIA-78901
+    Medicare MBI: 4KL7MN8PQ06
+    Insurance Member ID: UHC55667788
+
+    Access: Left cephalic fistula mature
+    Dry weight: 82.5 kg
+    Pre-dialysis weight: 85.1 kg
+
+    Labs:
+    BUN: 72 mg/dL
+    Creatinine: 9.1 mg/dL
+    Hgb: 10.8 g/dL
+    Albumin: 3.6 g/dL
+    Phosphorus: 5.8 mg/dL
+    PTH: 342 pg/mL
+    Kt/V: 1.38
+    URR: 68%
+
+    Medications:
+    Dose medication Aranesp 100 mcg IV
+    Prescribed sevelamer 800 mg TID
+
+    Infection screen:
+    HBsAg: negative
+    anti-HCV: negative
+    HIV: negative
+
+    BP: 148/92 pre, 130/78 post
+    HR: 78 bpm
+    """
+    result = scan(log)
+    assert result["phi_detected"] is True
+    types = {e["type"] for e in result["entities"]}
+    assert "patient_name" in types
+    assert "ssn" in types
+    assert "dialysis_access" in types
+    assert "dry_weight" in types
+    assert "lab_values" in types
+    assert "dialysis_adequacy" in types
+    assert "infection_status" in types
+    assert "blood_pressure" in types
+
+
+def test_synthetic_dialysis_redact():
+    """Redact dialysis preset removes all dialysis identifiers."""
+    scanner = FastPHIScanner()
+    log = "Patient Carlos Mendez SSN: 456-78-9012 Kt/V: 1.38 BUN: 72 mg/dL Dry weight: 82.5 kg Left cephalic fistula HBsAg: negative"
+    clean = scanner.redact_dialysis(log)
+    assert "Carlos Mendez" not in clean
+    assert "456-78-9012" not in clean
+    assert "1.38" not in clean
+    assert "72" not in clean
+    assert "82.5" not in clean
+
+
 # ── Convenience methods ──────────────────────────────────────────
 
 def test_has_phi():
@@ -525,7 +840,7 @@ def test_scan_batch():
 def test_scanner_healthy():
     scanner = FastPHIScanner()
     assert scanner.healthy is True
-    assert scanner.pattern_count == 32
+    assert scanner.pattern_count == 45
 
 
 def test_action_local_only_when_phi():
