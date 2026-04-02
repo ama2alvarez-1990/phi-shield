@@ -3,9 +3,11 @@
 Catches HIPAA, PCI-DSS, GDPR patterns in <1ms. No external dependencies.
 Designed for pre-flight checks before sending text to LLM APIs.
 
-22 pattern categories covering:
+32 pattern categories covering:
 - HIPAA: SSN, DOB, MRN, NPI, patient names, healthcare context, medical docs,
          Medicare/Medicaid, insurance IDs, physical addresses
+- HIPAA-EMS: GPS coordinates, blood pressure, vital signs, ICD-10, CPT,
+             NEMSIS elements, run/incident numbers, US dates, ZIP+4
 - PCI-DSS: Credit cards (full + partial), bank accounts
 - GDPR: Email, phone, IP, passport, driver's license
 - SOX: Salary/compensation
@@ -167,8 +169,104 @@ _PATTERN_SPECS = {
         re.IGNORECASE,
         "medium",
         "FERPA",
+        None,
+    ),
+    # ── EMS / HEALTHCARE ────────────────────────────────────────────
+    "gps_coordinates": (
+        r"-?\d{1,3}\.\d{4,},\s*-?\d{1,3}\.\d{4,}",
+        0,
+        "medium",
+        "HIPAA",
+        None,
+    ),
+    "blood_pressure": (
+        r"\b(?:BP|B/P|blood\s*pressure|SBP|DBP|systolic|diastolic)[:\s]*\d{2,3}\s*/\s*\d{2,3}\b",
+        re.IGNORECASE,
+        "high",
+        "HIPAA",
+        None,
+    ),
+    "vital_signs": (
+        r"\b(?:HR|heart\s*rate|pulse|SpO2|O2\s*sat|RR|resp(?:iratory)?\s*rate|GCS|temp(?:erature)?|glucose|BGL)[:\s]*\d{1,3}(?:\.\d)?\s*(?:%|bpm|/min|[°]?[FC]|mg/dL)?\b",
+        re.IGNORECASE,
+        "high",
+        "HIPAA",
+        None,
+    ),
+    "icd10_code": (
+        r"\b(?:ICD[-.]?10|diagnosis|dx)[:\s]*[A-Z]\d{2}(?:\.\d{1,4})?[A-Z]?\b",
+        re.IGNORECASE,
+        "medium",
+        "HIPAA",
+        None,
+    ),
+    "cpt_code": (
+        r"\b(?:CPT|procedure\s*code|billing\s*code|HCPCS)[:\s]*[A-Z0-9]\d{4}(?:[-\s]?\d{2})?\b",
+        re.IGNORECASE,
+        "medium",
+        "HIPAA",
+        None,
+    ),
+    "nemsis_element": (
+        r"\be(?:Patient|Situation|Response|Dispatch|Scene|Crew|Vitals|Medication|Procedure|Disposition|Outcome|Narrative|Custom|Payment|Injury)\.\d{2,3}\b",
+        0,
+        "medium",
+        "HIPAA",
+        None,
+    ),
+    "run_incident_number": (
+        r"\b(?:run|incident|pcr|case|call)\s*(?:#|no\.?|number|id)?[:\s]*[A-Z]?\d{4,12}\b",
+        re.IGNORECASE,
+        "high",
+        "HIPAA",
+        None,
+    ),
+    "date_us": (
+        r"\b(?:0?[1-9]|1[0-2])[/\-](?:0?[1-9]|[12]\d|3[01])[/\-](?:19|20)\d{2}\b",
+        0,
+        "medium",
+        "HIPAA",
+        frozenset({
+            "patient", "medical", "clinical", "ems", "hospital", "ambulance",
+            "epcr", "chart", "record", "diagnosis", "treatment", "admission",
+            "discharge", "transfer", "medication", "prescription", "incident",
+            "pcr", "run sheet", "billing", "cms-1500", "ub-04", "hipaa",
+        }),
+    ),
+    "date_written": (
+        r"\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4}\b",
+        re.IGNORECASE,
+        "medium",
+        "HIPAA",
+        frozenset({
+            "patient", "medical", "clinical", "ems", "hospital", "ambulance",
+            "epcr", "chart", "record", "diagnosis", "treatment", "admission",
+            "discharge", "transfer", "medication", "prescription", "incident",
+            "pcr", "run sheet", "billing", "cms-1500", "ub-04", "hipaa",
+        }),
+    ),
+    "zip_plus4": (
+        r"\b\d{5}-\d{4}\b",
+        0,
+        "low",
+        "HIPAA",
+        None,
     ),
 }
+
+# Pattern groups for redaction presets
+_EMS_PATTERNS = frozenset({
+    "ssn", "date_of_birth", "medical_record_number", "npi", "patient_name",
+    "physical_address", "phone", "email", "gps_coordinates", "blood_pressure",
+    "vital_signs", "nemsis_element", "run_incident_number", "date_us",
+    "date_written", "zip_plus4",
+})
+
+_BILLING_PATTERNS = frozenset({
+    "ssn", "date_of_birth", "medical_record_number", "npi", "medicare_medicaid",
+    "insurance_id", "patient_name", "physical_address", "icd10_code", "cpt_code",
+    "credit_card", "credit_card_partial", "bank_account",
+})
 
 RISK_ORDER = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 
@@ -176,9 +274,14 @@ RISK_ORDER = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 def _compile_patterns() -> dict:
     """Compile regex patterns with graceful degradation."""
     compiled = {}
-    for name, (raw, flags, risk, regulation) in _PATTERN_SPECS.items():
+    for name, spec in _PATTERN_SPECS.items():
+        if len(spec) == 5:
+            raw, flags, risk, regulation, context = spec
+        else:
+            raw, flags, risk, regulation = spec
+            context = None
         try:
-            compiled[name] = (re.compile(raw, flags), risk, regulation)
+            compiled[name] = (re.compile(raw, flags), risk, regulation, context)
         except re.error as exc:
             logger.warning("Pattern '%s' failed to compile: %s", name, exc)
     return compiled
@@ -244,8 +347,11 @@ class FastPHIScanner:
         entities = []
         max_risk = "none"
         max_regulation = "none"
+        text_lower = text.lower()
 
-        for entity_type, (pattern, risk, regulation) in self._patterns.items():
+        for entity_type, (pattern, risk, regulation, context) in self._patterns.items():
+            if context and not any(kw in text_lower for kw in context):
+                continue
             matches = pattern.findall(text)
             for match in matches:
                 value = match if isinstance(match, str) else str(match)
@@ -277,8 +383,38 @@ class FastPHIScanner:
         Returns:
             Text with all PHI/PII replaced by redaction markers.
         """
+        return self._redact_subset(text, None, replacement)
+
+    def redact_ems(self, text: str) -> str:
+        """Redact EMS-specific PHI (ePCR, run sheets, vitals).
+
+        Targets: SSN, DOB, MRN, NPI, patient names, addresses, phone, email,
+        GPS, blood pressure, vitals, NEMSIS elements, run numbers, dates, ZIP+4.
+        """
+        return self._redact_subset(text, _EMS_PATTERNS)
+
+    def redact_billing(self, text: str) -> str:
+        """Redact billing PHI (CMS-1500, UB-04, insurance claims).
+
+        Targets: SSN, DOB, MRN, NPI, Medicare/Medicaid, insurance IDs,
+        patient names, addresses, ICD-10, CPT codes, credit cards, bank accounts.
+        """
+        return self._redact_subset(text, _BILLING_PATTERNS)
+
+    def _redact_subset(
+        self,
+        text: str,
+        pattern_names: Optional[frozenset] = None,
+        replacement: Optional[str] = None,
+    ) -> str:
+        """Redact a subset of patterns (or all if pattern_names is None)."""
         result = text
-        for entity_type, (pattern, risk, regulation) in self._patterns.items():
+        text_lower = text.lower()
+        for entity_type, (pattern, risk, regulation, context) in self._patterns.items():
+            if pattern_names is not None and entity_type not in pattern_names:
+                continue
+            if context and not any(kw in text_lower for kw in context):
+                continue
             tag = replacement or f"[{entity_type.upper()}]"
             result = pattern.sub(tag, result)
         return result
