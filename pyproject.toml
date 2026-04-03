@@ -20,5 +20,10 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
 ]
 
+[project.scripts]
+phi-shield = "phi_shield.cli:main"
+
 [project.urls]
-Homepage = "https://github.com/amadoalvarez/phi-shield"
+Homepage = "https://github.com/ama2alvarez-1990/phi-shield"
+Repository = "https://github.com/ama2alvarez-1990/phi-shield"
+Issues = "https://github.com/ama2alvarez-1990/phi-shield/issues"
